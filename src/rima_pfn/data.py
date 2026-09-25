@@ -1,11 +1,17 @@
+import pathlib
+from typing import Optional
+
+import librosa
+import numpy
 import pandas
 from datasets import load_dataset
 
 
 CONFIGS = ("albums", "artists", "audio", "edges", "lyrics", "nodes")
+SR = 16_000
 
 class RIMADataset:
-    def __init__(self, rima_dict: dict):
+    def __init__(self, rima_dict: dict, audio_path: Optional[pathlib.Path] = None):
         merge = pandas.merge(
             rima_dict["albums"],
             rima_dict["artists"],
@@ -66,7 +72,6 @@ class RIMADataset:
             inplace=True,
         )
 
-
         merge.rename({
             "id_artist_merge1": "artist_id",
             "id_album": "album_id",
@@ -76,6 +81,13 @@ class RIMADataset:
             axis="columns",
             inplace=True,
         )
+
+        if audio_path is not None:
+            artists, tracks = merge.id_artist, merge.id_track
+            merge["audio"] = [audio_path / f"{a}_{t}'.mp3" for a, t in zip(artists, tracks)]
+            merge["audio"] = merge.audio.apply(
+                lambda p: librosa.load(p, sr=SR)[0] if p.exists() else numpy.array([])
+            )
 
         self.d = merge
 
