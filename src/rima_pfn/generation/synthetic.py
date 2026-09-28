@@ -31,18 +31,16 @@ class TabularGenerator:
 
 
 
-    def generate(self, n: int, filters: Optional[Sequence[Callable]] = None, **generation_parameters) -> pandas.DataFrame:
+    def generate(self, n: int, **generation_parameters) -> pandas.DataFrame:
         """Generate `n` samples.
 
         Args:
             n: How many samples to generate
-            filters:
             **generation_parameters: Keyword parameters for the generator:
                 - temp: Generation temperature
-                -
 
         Returns:
-
+            The generated data, as a DataFrame.
         """
         generated = self.generator.run(
             tabpfn=self.model,
@@ -53,9 +51,5 @@ class TabularGenerator:
         ).synthetic_X.numpy()
 
         generated = pandas.DataFrame(generated, columns=TabularGenerator.features)
-
-        # todo: filter
-        if filters is not None:
-            pass
 
         return generated
