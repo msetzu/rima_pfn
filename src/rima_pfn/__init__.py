@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from rima-pfn!")
+RANDOM_STATE = 42

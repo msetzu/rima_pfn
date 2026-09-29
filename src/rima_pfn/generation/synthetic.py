@@ -1,5 +1,3 @@
-from typing import Callable, Sequence, Optional
-
 import pandas
 import torch
 from tabpfn.constants import ModelVersion

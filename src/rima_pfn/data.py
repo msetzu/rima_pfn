@@ -10,6 +10,7 @@ from datasets import load_dataset
 CONFIGS = ("albums", "artists", "audio", "edges", "lyrics", "nodes")
 SR = 16_000
 
+
 class RIMADataset:
     def __init__(self, rima_dict: dict, audio_path: Optional[pathlib.Path] = None):
         merge = pandas.merge(
@@ -91,15 +92,16 @@ class RIMADataset:
 
         self.d = merge
 
+    @staticmethod
+    def build():
+        rima_dict = {
+            config: load_dataset("mstz/rima", config)["train"].to_pandas()
+            for config in CONFIGS
+        }
 
-def load_data() -> RIMADataset:
-    rima_dict = {
-        config: load_dataset("mstz/rima", config)["train"].to_pandas()
-        for config in CONFIGS
-    }
+        return RIMADataset(rima_dict)
 
-    return RIMADataset(rima_dict)
 
 if __name__ == "__main__":
-    res = load_data()
+    res = RIMADataset.build()
     pass

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Optional, Sequence
+from typing import Sequence
 
 import pandas
 import sdm
@@ -8,7 +8,6 @@ import torch
 from sdm import TableTensor
 from sdm.models import TabICLv2
 from tabpfn import TabPFNClassifier
-from transformers.testing_utils import set_model_for_less_flaky_test
 
 from rima_pfn.modeling.tasks import Task
 
@@ -21,7 +20,7 @@ class TabularModel:
     def _overrides(self, label: str, task: Task) -> dict:
         return {label: "categorical"} if task == Task.CLASSIFICATION else {}
 
-    def fit_sdm(self, data: pandas.DataFrame, label: str, task: Task) -> TabularModel:
+    def fit_sdm(self, data: pandas.DataFrame, label: str, task: Task, **kwargs) -> TabularModel:
         """Implementation w/ the SDM library: https://github.com/NVIDIA/structured-data-models"""
         overrides = self._overrides(label, task)
         table = TableTensor.from_pandas(
@@ -30,13 +29,24 @@ class TabularModel:
             device="cuda",
         )
 
+        self.model = TabICLv2(device="auto")
+        self.model.fit(
+            x=table.drop_columns(label),
+            y=table[:, label],
+            **kwargs,
+        )
+        self.is_fit = True
+
         return self
 
 
-    def fit_pfn(self, data: torch.Tensor, labels: torch.Tensor) -> TabularModel:
+    def fit_pfn(self, data: pandas.DataFrame, label: str) -> TabularModel:
         """Implementation w/ the Priorlabs library: https://github.com/PriorLabs/TabPFN"""
         model = TabPFNClassifier(device="auto",)
-        model.fit(data, labels)
+        model.fit(
+            torch.Tensor(data.drop_columns(label).values),
+            torch.Tensor(data[label])
+        )
 
         self.model = model
         self.is_fit = True
@@ -90,7 +100,6 @@ class ICLTabularModel(TabularModel):
 
         elif isinstance(context, list):
             # Context for each dataframe is already given
-            # todo: assumes same header for every context, maybe adjust later?
             is_index = isinstance(context[0], list)
 
             predictions = list()
