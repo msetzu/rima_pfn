@@ -14,6 +14,7 @@ dependencies = [
     "librosa>=0.11.0",
     "pandas>=2.3.3",
     "pandas-stubs~=2.3.3",
+    "scipy-stubs~=1.17.1",
     "tabpfn-client>=0.6.0",
     "tabpfn-extensions[all]>=0.6.3",
 ]
