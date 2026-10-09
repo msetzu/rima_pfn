@@ -1,4 +1,5 @@
 import json
+import logging
 from functools import partial
 
 import pandas
@@ -20,7 +21,7 @@ def _preprocess(d: pandas.DataFrame) -> tuple[pandas.DataFrame, pandas.DataFrame
         "total_tracks",
         "album_popularity",
         "birth_lat",
-        "birth_long",
+        # "birth_long",
     ])
     df = pandas.concat([df, d[["birth_region"]]], axis="columns")
     df = df[~df["birth_region"].isna()]
@@ -41,8 +42,13 @@ def _preprocess(d: pandas.DataFrame) -> tuple[pandas.DataFrame, pandas.DataFrame
 def fit_school(d: pandas.DataFrame) -> dict:
     train_df, test_df = _preprocess(d)
 
-    model = TabularModel().fit_sdm(train_df, "birth_region", task=Task.CLASSIFICATION).model
+    print("\tConstruct model...")
+    model = TabularModel()
+    print("\tFit...")
+    model = model.fit_sdm(train_df, "birth_region", task=Task.CLASSIFICATION).model
+    print("\tInference...")
     predictions = model.predict(test_df)
+    print("\tEvaluation...")
     report = classification_report(
         y_true=test_df["birth_region"],
         y_pred=predictions,
@@ -125,9 +131,7 @@ def icl(d: pandas.DataFrame) -> list[dict]:
     return reports
 
 
-
-
-if __name__ == "__main__":
+def run():
     d = RIMADataset.build().d
 
     task_reports = list()
@@ -141,17 +145,19 @@ if __name__ == "__main__":
     print("School classification")
     task_reports.append(fit_school(d))
 
-
     #############################
     # zero-shot #################
     #############################
     task_reports.append(zero_shot_school(d))
 
-
     #############################
     # ICL #######################
     #############################
-    task_reports.append(icl(d))
+    # task_reports.append(icl(d))
 
     with open("../data/reports/classification.json", "w") as f:
         json.dump(task_reports, f)
+
+
+if __name__ == "__main__":
+    run()

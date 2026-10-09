@@ -3,14 +3,6 @@
     "10_only": true
   },
   "icl": [
-    "null",
-    {
-      "selection_policy": "same",
-      "object_id": ...,
-      "kwargs": {
-        "same_id": "artist_id"
-      },
-    },
-    ["same", "artist_id"]
+    "null"
   ]
 }
