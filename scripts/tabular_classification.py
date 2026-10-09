@@ -1,18 +1,18 @@
 import json
-import logging
 from functools import partial
 
 import pandas
 from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
 
+import rima_pfn
 from rima_pfn.data import RIMADataset
 from rima_pfn.modeling import context
 from rima_pfn.modeling.tabular import TabularModel, ICLTabularModel
 from rima_pfn.modeling.tasks import Task
 
 
-with open("configs.json", "r") as f:
+with open("../scripts/configs.json", "r") as f:
     CONFIGS = json.load(f)
 
 
@@ -34,6 +34,7 @@ def _preprocess(d: pandas.DataFrame) -> tuple[pandas.DataFrame, pandas.DataFrame
         df,
         stratify=df["birth_region"],
         test_size=0.2,
+        random_state=rima_pfn.random_state(),
     )
 
     return train_df, test_df
@@ -42,18 +43,17 @@ def _preprocess(d: pandas.DataFrame) -> tuple[pandas.DataFrame, pandas.DataFrame
 def fit_school(d: pandas.DataFrame) -> dict:
     train_df, test_df = _preprocess(d)
 
-    print("\tConstruct model...")
     model = TabularModel()
     print("\tFit...")
-    model = model.fit_sdm(train_df, "birth_region", task=Task.CLASSIFICATION).model
+    model.fit_sdm(train_df, "birth_region", task=Task.CLASSIFICATION)
     print("\tInference...")
-    predictions = model.predict(test_df)
+    predictions = model.predict(test_df, "birth_region", task=Task.CLASSIFICATION)
     print("\tEvaluation...")
     report = classification_report(
         y_true=test_df["birth_region"],
         y_pred=predictions,
         output_dict=True,
-    )["macro_avg"]
+    )["macro avg"]
     report["model"] = "TabICLv2"
     report["task"] = "fit_classification"
     report["task_name"] = "region"
@@ -117,7 +117,7 @@ def icl(d: pandas.DataFrame) -> list[dict]:
             y_true=test_df["birth_region"],
             y_pred=predictions,
             output_dict=True,
-        )["macro_avg"]
+        )["macro avg"]
         report["model"] = "TabICLv2"
         report["task"] = "icl_classification"
         report["task_name"] = "region"
@@ -159,5 +159,5 @@ def run():
         json.dump(task_reports, f)
 
 
-if __name__ == "__main__":
-    run()
+# if __name__ == "__main__":
+#     run()

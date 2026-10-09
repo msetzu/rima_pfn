@@ -38,7 +38,7 @@ class SeriesModel:
         else:
             data = encoder(data)
 
-        model = TabPFNClassifier(device="auto",)
+        model = TabPFNClassifier(device="cpu",)
         model.fit(data, labels)
 
         self.model = model
