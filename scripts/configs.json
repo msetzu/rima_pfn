@@ -1,8 +1,23 @@
 {
-  "school": {
-    "10_only": true
+  "tasks": {
+    "region": {
+      "label": "birth_region",
+      "type": "classification",
+      "fine_tune": true,
+      "modes": {
+        "fit": true,
+        "icl": [
+          "null"
+        ]
+      },
+      "exclude_classes": ["Puglia", "Emilia-Romagna", "Calabria"],
+      "exclude_features": ["birth_lat", "birth_lon", "total_tracks", "album_popularity", "release_year", "release_month", "release_day", "stats_pageviews"]
+    }
   },
-  "icl": [
-    "null"
-  ]
+  "fine_tune": {
+    "epochs": 5,
+    "episodes_per_epoch": 100,
+    "support_size": 64,
+    "query_size": 32
+  }
 }

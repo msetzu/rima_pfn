@@ -9,4 +9,3 @@ def random_state(state: Optional[int] = None):
         _RANDOM_STATE = state
 
     return _RANDOM_STATE
-
