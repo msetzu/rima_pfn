@@ -14,34 +14,65 @@ SR = 16_000
 class RIMADataset:
     def __init__(self, rima_dict: dict, audio_path: Optional[pathlib.Path] = None):
         merge = pandas.merge(
-            rima_dict["albums"],
-            rima_dict["artists"],
-            left_on="artist_ids",
-            right_on="id_artist",
-            suffixes=("_album", "_artist"),
+            rima_dict["audio"],
+            rima_dict["lyrics"],
+            left_on="id_track",
+            right_on="id_track",
+            how="inner",
+            suffixes=("_audio", "_lyrics"),
         )
         merge = pandas.merge(
             merge,
-            rima_dict["audio"],
-            left_on="name",
-            right_on="name_artist",
-            suffixes=("_merge1", "_audio"),
+            rima_dict["artists"],
+            left_on="id_artist_audio",
+            right_on="id_artist",
+            how="inner",
+            suffixes=("_audio", "_artist"),
         )
 
+        merge.drop(columns=["id_artist", "id_artist_audio"], inplace=True)
         merge["is_male"] = merge["gender"] == "M"
         merge["is_female"] = merge["gender"] == "F"
         merge["is_group"] = merge["gender"] == "G"
-        merge["is_album"] = merge["album_type"] == "album"
-        merge["is_single"] = merge["album_type"] == "single"
-        merge["is_compilation"] = merge["album_type"] == "compilation"
+        # preclean for downstream tasks
+        merge = merge[(~merge["birth_lon"].isna()) & (~merge["birth_lat"].isna())]
 
         merge.drop([
             "id_album_spotify",
+            "featured_artists_audio",
+            "featured_artists_lyrics",
             "artist_ids",
             "artist_names",
             "upc",
             "mbid_release",
             "release_country",
+            "release_type",
+            "release_year",
+            "release_month",
+            "release_day",
+            "album_audio",
+            "album_lyrics",
+            "release_year_lyrics",
+            "release_month_lyrics",
+            "release_day_lyrics",
+            "release_year_audio",
+            "release_month_audio",
+            "release_day_audio",
+            "real_name",
+            "pseudonyms",
+            "birth_date",
+            "birth_place",
+            "birth_country",
+            "nationality",
+            "active_start",
+            "music_genre",
+            "record_label",
+            "description",
+            "album",
+            "lyrics_clean",
+            "stats_pageviews",
+            "stats_pageviews_audio",
+            "stats_pageviews_lyrics",
             "barcode",
             "qid",
             "image_url",
@@ -71,13 +102,13 @@ class RIMADataset:
             ],
             axis="columns",
             inplace=True,
+            errors="ignore",
         )
 
-        merge.rename({
-            "id_artist_merge1": "artist_id",
-            "id_album": "album_id",
-            "name": "artist_name",
-            "id_track": "track_id",
+        merge.rename(
+            {
+                "id_track": "track_id",
+                "id_artist_lyrics": "artist_id",
             },
             axis="columns",
             inplace=True,

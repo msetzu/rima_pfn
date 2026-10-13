@@ -3,9 +3,6 @@ from functools import partial
 
 import numpy
 import pandas
-import sdm
-import torch
-from sdm import TableTensor
 from sklearn.metrics import classification_report, balanced_accuracy_score
 from sklearn.model_selection import train_test_split, GroupShuffleSplit
 
@@ -16,18 +13,18 @@ from rima_pfn.modeling.tabular import TabularModel, ICLTabularModel
 from rima_pfn.modeling.tasks import Task
 
 
-def preprocess(d: pandas.DataFrame, config: dict, by_artist: bool = True) -> tuple[pandas.DataFrame, pandas.DataFrame]:
+def preprocess(d: pandas.DataFrame, task: dict, by_artist: bool = True) -> tuple[pandas.DataFrame, pandas.DataFrame]:
     df = d.copy()
-    df = df.dropna(axis=0, how="any")
-    if "exclude_classes" in config:
-        df = df[~df[config["label"]].isin(config["exclude_classes"])]
-    if "exclude_features" in config:
-        df = df.drop(columns=config["exclude_features"], errors="ignore")
-
-    df = df.drop(columns=[config["label"]], errors="ignore")
-    df = pandas.concat([df, d.iloc[df.index][[config["label"]]]], axis="columns")
+    if "exclude_classes" in task:
+        df = df[~df[task["label"]].isin(task["exclude_classes"])]
+    if "exclude_features" in task:
+        df = df.drop(columns=task["exclude_features"], errors="ignore")
+    df = df.dropna(axis=0, how="any", subset=df.select_dtypes(include="number").columns)
 
     if by_artist:
+        if "artist_id" not in df.columns:
+            df = pandas.concat([ df, d.loc[df.index][["artist_id"]] ], axis="columns")
+
         splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
         train_idx, test_idx = next(splitter.split(df, groups=df["artist_id"]))
         train_df = df.iloc[train_idx]
@@ -41,21 +38,35 @@ def preprocess(d: pandas.DataFrame, config: dict, by_artist: bool = True) -> tup
 
         train_df, test_df = train_test_split(
             df,
-            stratify=df[config["label"]],
+            stratify=df[task["label"]],
             test_size=0.2,
             random_state=rima_pfn.random_state(),
         )
 
-    train_df = pandas.concat([train_df, d.iloc[train_df.index][[config["label"]]]], axis="columns")
-    test_df = pandas.concat([test_df, d.iloc[test_df.index][[config["label"]]]], axis="columns")
+    # we may accidentally drop the label column
+    if task["label"] not in train_df.columns:
+        train_df = pandas.concat([train_df, d.loc[train_df.index][[task["label"]]]], axis="columns")
+        test_df = pandas.concat([test_df, d.loc[test_df.index][[task["label"]]]], axis="columns")
 
     return train_df, test_df
 
 
-def evaluate(model, data, labels: numpy.ndarray, task: dict, as_torch: bool = False) -> dict:
+def evaluate(
+        model: TabularModel,
+        data: pandas.DataFrame,
+        context: pandas.DataFrame,
+        labels: numpy.ndarray,
+        task: dict,
+        as_torch: bool = False
+) -> dict:
     if as_torch:
-        predictions = model.predict_torch(data, task["label"], task=task["task"])
+        query_with_labels = data.copy()
+        query_with_labels[task["label"]] = labels
+
+        predictions = model.predict_torch(query_df=query_with_labels, context_df=context, task=task)
         labels = numpy.array([model.class_indices[c] for c in labels])
+    else:
+        predictions = model.predict(data, task["label"], task=task["task"])
 
     print("\tEvaluation...")
     report = classification_report(
@@ -90,19 +101,43 @@ def fit_task(d: pandas.DataFrame, task) -> dict:
 
     return report
 
-
-def finetune_task(d: pandas.DataFrame, task, finetune_args: dict) -> dict:
+def fit_xgboost_task(d: pandas.DataFrame, task) -> dict:
     train_df, test_df = preprocess(d, task)
 
     model = TabularModel()
     print("\tFit...")
-    model.fine_tune(train_df, task["label"], task=task["task"], **finetune_args)
+    model.fit_sdm(train_df, task["label"], task=task["task"])
     print("\tInference...")
     report = evaluate(
         model,
         test_df.drop(columns=[task["label"]]),
         test_df[task["label"]],
         task,
+        as_torch=False
+    )
+    report["model"] = "TabICLv2"
+    report["task"] = "fit"
+    report["task_name"] = task["label"]
+    report["modality"] = "tabular"
+
+    return report
+
+
+def finetune_task(d: pandas.DataFrame, task, finetune_args: dict) -> dict:
+    train_df, test_df = preprocess(d, task)
+
+    model = TabularModel()
+    print("\tFit...")
+    model.fine_tune(train_df, task=task, **finetune_args)
+    train_df[task["label"]] = train_df[task["label"]].map(model.class_indices)
+    test_df[task["label"]] = test_df[task["label"]].map(model.class_indices)
+    print("\tInference...")
+    report = evaluate(
+        model,
+        data=test_df.drop(columns=[task["label"]]),
+        context=train_df,
+        labels=test_df[task["label"]],
+        task=task,
         as_torch=True
     )
     report["model"] = "TabICLv2"
@@ -170,7 +205,7 @@ def icl(d: pandas.DataFrame, config, icl_config) -> list[dict]:
 
 
 def run():
-    with open("../scripts/configs.json", "r") as f:
+    with open("scripts/configs.json", "r") as f:
         config = json.load(f)
 
     d = RIMADataset.build().d
@@ -178,23 +213,24 @@ def run():
     task_reports = list()
 
     for task_name, task in config["tasks"].items():
-        print(task_name)
-        config["task"] = Task.CLASSIFICATION if config["label"] == "classification" else Task.REGRESSION
+        print(f"Task: {task_name}")
+        task["task"] = Task.CLASSIFICATION if task["type"] == "classification" else Task.REGRESSION
 
-        if "fit" in config["modes"]:
-            task_reports.append(fit_task(d, config))
-            pandas.DataFrame(task_reports).to_csv("classification_report.csv")
+        # if "fit" in task["modes"]:
+        #     task_reports.append(fit_task(d, task))
+        #     pandas.DataFrame(task_reports).to_csv("classification_report.csv")
 
-        if "fine_tune" in config:
+        if task["fine_tune"]:
             finetuning_config = config["fine_tune"]
             task_reports.append(finetune_task(d, task, finetuning_config))
+            pandas.DataFrame(task_reports).to_csv("classification_report.csv")
 
-        if "icl" in config["modes"]:
+        if "icl" in task["modes"]:
             for icl_config in config["modes"]["icl"]:
                 task_reports.append(icl(d, config, icl_config))
                 pandas.DataFrame(task_reports).to_csv("classification_report.csv")
 
 
 
-# if __name__ == "__main__":
-#     run()
+if __name__ == "__main__":
+    run()
