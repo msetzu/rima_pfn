@@ -39,9 +39,29 @@
     }
   },
   "fine_tune": {
-    "epochs": 5,
-    "episodes_per_epoch": 100,
-    "support_size": 64,
-    "query_size": 32
+    "fraction_validation": 0.2,
+
+    "epochs": 30,
+    "steps_per_epoch": 20,
+
+    "learning_rate": 1e-5,
+    "weight_decay": 0.0,
+    "warmup_fraction": 0.1,
+
+    "grad_clip": 1.0,
+
+    "patience": 5,
+
+    "context_size": 1024,
+
+    "query_size": 512,
+
+    "num_estimators_train": 32,
+    "num_estimators_eval": 32,
+
+    "eval_context_size": 10000,
+    "eval_batch_size": 2048,
+
+    "amp": true
   }
 }

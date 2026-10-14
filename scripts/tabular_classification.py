@@ -1,5 +1,6 @@
 import json
 from functools import partial
+from typing import Optional
 
 import numpy
 import pandas
@@ -13,7 +14,12 @@ from rima_pfn.modeling.tabular import TabularModel, ICLTabularModel
 from rima_pfn.modeling.tasks import Task
 
 
-def preprocess(d: pandas.DataFrame, task: dict, by_artist: bool = True) -> tuple[pandas.DataFrame, pandas.DataFrame]:
+def preprocess(
+        d: pandas.DataFrame,
+        task: dict,
+        by_artist: bool = True,
+        intersect_labels: bool = True,
+) -> tuple[pandas.DataFrame, pandas.DataFrame]:
     df = d.copy()
     if "exclude_classes" in task:
         df = df[~df[task["label"]].isin(task["exclude_classes"])]
@@ -48,27 +54,32 @@ def preprocess(d: pandas.DataFrame, task: dict, by_artist: bool = True) -> tuple
         train_df = pandas.concat([train_df, d.loc[train_df.index][[task["label"]]]], axis="columns")
         test_df = pandas.concat([test_df, d.loc[test_df.index][[task["label"]]]], axis="columns")
 
+    if intersect_labels:
+        legal_labels = numpy.intersect1d(
+            train_df[task["label"]].values,
+            test_df[task["label"]].values,
+        )
+        train_df = train_df[train_df[task["label"]].isin(legal_labels)]
+        test_df = test_df[test_df[task["label"]].isin(legal_labels)]
+
     return train_df, test_df
 
 
 def evaluate(
-        model: TabularModel,
-        data: pandas.DataFrame,
-        context: pandas.DataFrame,
-        labels: numpy.ndarray,
-        task: dict,
-        as_torch: bool = False
+    model: TabularModel,
+    task: dict,
+    query: pandas.DataFrame,
+    labels: numpy.ndarray,
+    context: Optional[pandas.DataFrame] = None,
+    is_finetuned: bool = False
 ) -> dict:
-    if as_torch:
-        query_with_labels = data.copy()
-        query_with_labels[task["label"]] = labels
-
-        predictions = model.predict_torch(query_df=query_with_labels, context_df=context, task=task)
-        labels = numpy.array([model.class_indices[c] for c in labels])
+    if is_finetuned:
+        if context is None:
+            raise ValueError("context required for evaluation on is_finetuned==True")
+        predictions = model.predict_with_fit(query_df=query, context_df=context, task=task, as_objects=False)
     else:
-        predictions = model.predict(data, task["label"], task=task["task"])
+        predictions = model.predict(query, task["label"], task=task["task"])
 
-    print("\tEvaluation...")
     report = classification_report(
         y_true=labels,
         y_pred=predictions,
@@ -84,36 +95,13 @@ def fit_task(d: pandas.DataFrame, task) -> dict:
     train_df, test_df = preprocess(d, task)
 
     model = TabularModel()
-    print("\tFit...")
     model.fit_sdm(train_df, task["label"], task=task["task"])
-    print("\tInference...")
     report = evaluate(
         model,
-        test_df.drop(columns=[task["label"]]),
-        test_df[task["label"]],
-        task,
-        as_torch=False
-    )
-    report["model"] = "TabICLv2"
-    report["task"] = "fit"
-    report["task_name"] = task["label"]
-    report["modality"] = "tabular"
-
-    return report
-
-def fit_xgboost_task(d: pandas.DataFrame, task) -> dict:
-    train_df, test_df = preprocess(d, task)
-
-    model = TabularModel()
-    print("\tFit...")
-    model.fit_sdm(train_df, task["label"], task=task["task"])
-    print("\tInference...")
-    report = evaluate(
-        model,
-        test_df.drop(columns=[task["label"]]),
-        test_df[task["label"]],
-        task,
-        as_torch=False
+        query=test_df.drop(columns=[task["label"]]),
+        labels=test_df[task["label"]],
+        task=task,
+        is_finetuned=False
     )
     report["model"] = "TabICLv2"
     report["task"] = "fit"
@@ -124,21 +112,21 @@ def fit_xgboost_task(d: pandas.DataFrame, task) -> dict:
 
 
 def finetune_task(d: pandas.DataFrame, task, finetune_args: dict) -> dict:
-    train_df, test_df = preprocess(d, task)
+    train_df, test_df = preprocess(d, task, by_artist=True, intersect_labels=True)
 
     model = TabularModel()
-    print("\tFit...")
+    full_df = pandas.concat([train_df, test_df], axis="rows", ignore_index=True)
+    class_indices, _ = model.classes_mapping(full_df, task)
+    train_df[task["label"]] = train_df[task["label"]].map(class_indices)
+    test_df[task["label"]] = test_df[task["label"]].map(class_indices)
     model.fine_tune(train_df, task=task, **finetune_args)
-    train_df[task["label"]] = train_df[task["label"]].map(model.class_indices)
-    test_df[task["label"]] = test_df[task["label"]].map(model.class_indices)
-    print("\tInference...")
     report = evaluate(
         model,
-        data=test_df.drop(columns=[task["label"]]),
+        query=test_df,
         context=train_df,
         labels=test_df[task["label"]],
         task=task,
-        as_torch=True
+        is_finetuned=True
     )
     report["model"] = "TabICLv2"
     report["task"] = "fit"
@@ -205,7 +193,7 @@ def icl(d: pandas.DataFrame, config, icl_config) -> list[dict]:
 
 
 def run():
-    with open("scripts/configs.json", "r") as f:
+    with open("configs.json", "r") as f:
         config = json.load(f)
 
     d = RIMADataset.build().d
@@ -213,22 +201,22 @@ def run():
     task_reports = list()
 
     for task_name, task in config["tasks"].items():
-        print(f"Task: {task_name}")
+        print(f"Task: {task}")
         task["task"] = Task.CLASSIFICATION if task["type"] == "classification" else Task.REGRESSION
 
-        # if "fit" in task["modes"]:
-        #     task_reports.append(fit_task(d, task))
-        #     pandas.DataFrame(task_reports).to_csv("classification_report.csv")
+        if "fit" in task["modes"]:
+            task_reports.append(fit_task(d, task))
+            pandas.DataFrame(task_reports).to_csv("classification_report.csv")
 
         if task["fine_tune"]:
             finetuning_config = config["fine_tune"]
             task_reports.append(finetune_task(d, task, finetuning_config))
             pandas.DataFrame(task_reports).to_csv("classification_report.csv")
 
-        if "icl" in task["modes"]:
-            for icl_config in config["modes"]["icl"]:
-                task_reports.append(icl(d, config, icl_config))
-                pandas.DataFrame(task_reports).to_csv("classification_report.csv")
+        # if "icl" in task["modes"]:
+        #     for icl_config in config["modes"]["icl"]:
+        #         task_reports.append(icl(d, config, icl_config))
+        #         pandas.DataFrame(task_reports).to_csv("classification_report.csv")
 
 
 
