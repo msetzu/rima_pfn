@@ -6,6 +6,7 @@ import numpy
 import pandas
 from sklearn.metrics import classification_report, balanced_accuracy_score
 from sklearn.model_selection import train_test_split, GroupShuffleSplit
+from tqdm import tqdm
 
 import rima_pfn
 from rima_pfn.data import RIMADataset
@@ -205,10 +206,12 @@ def run():
         task["task"] = Task.CLASSIFICATION if task["type"] == "classification" else Task.REGRESSION
 
         if "fit" in task["modes"]:
+            print("\tFitting...")
             task_reports.append(fit_task(d, task))
             pandas.DataFrame(task_reports).to_csv("classification_report.csv")
 
         if task["fine_tune"]:
+            print("\tTuning...")
             finetuning_config = config["fine_tune"]
             task_reports.append(finetune_task(d, task, finetuning_config))
             pandas.DataFrame(task_reports).to_csv("classification_report.csv")

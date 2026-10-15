@@ -14,6 +14,7 @@ from sdm.models import TabICLv2
 from sdm.evaluation import to_class_indices
 from tabpfn import TabPFNClassifier
 import torch.nn.functional as F
+from tqdm import tqdm
 
 import rima_pfn
 from rima_pfn.modeling.tasks import Task
@@ -84,7 +85,7 @@ class TabularModel:
         self.index_classes = None
 
     def overrides(self, label: str, task: Task) -> dict:
-        return {label: "categorical"} if task == Task.CLASSIFICATION else {}
+        return {label: "categorical"} if task == Task.CLASSIFICATION else {label: "numerical"}
 
     def fit_sdm(self, data: pandas.DataFrame, label: str, task: Task, **kwargs) -> TabularModel:
         """Implementation w/ the SDM library: https://github.com/NVIDIA/structured-data-models"""
@@ -207,16 +208,15 @@ class TabularModel:
         if self.class_indices is None:
             self.classes_mapping(train_df, task)
 
-        if self.model is None:
-            self.model = TabICLv2(
-                task="classification" if task["task"] == Task.CLASSIFICATION else "regression",
-                pretrained=True,
-                device="cpu"
-            )
+        self.model = TabICLv2(
+            task="classification" if task["task"] == Task.CLASSIFICATION else "regression",
+            pretrained=True,
+            device="cpu"
+        )
 
         full = train_df.reset_index(drop=True)
         validation_index, train_index = TabularModel.train_val_split(train_df.shape[0])
-        stypes = sdm.infer_stypes(full, overrides=self.overrides(task["label"], task["type"]))
+        stypes = sdm.infer_stypes(full, overrides=self.overrides(task["label"], task["task"]))
 
         table = sdm.TableTensor.from_pandas(full, stypes=stypes, device=device)
         train_size = len(train_index)
@@ -239,9 +239,6 @@ class TabularModel:
             batch_size=kwargs["eval_batch_size"],
             amp_contextmanager=TabularModel.amp_contextmanager,
         )
-        print(eval_kwargs)
-        print(eval_kwargs["task"])
-
 
         optimizer = torch.optim.AdamW(
             self.model.parameters(),
@@ -258,7 +255,7 @@ class TabularModel:
         )
 
         # train
-        for epoch in range(1, kwargs["epochs"] + 1):
+        for epoch in tqdm(range(1, kwargs["epochs"] + 1), total=kwargs["epochs"]):
             self.model.train()  # forward() only tracks gradients in train mode
             running = 0.0
             for _ in range(kwargs["steps_per_epoch"]):
