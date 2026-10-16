@@ -100,7 +100,7 @@ class TabularModel:
         self.model.fit(
             x=table.drop_columns(label),
             y=table[:, label],
-            num_estimators=32,
+            num_estimators=8,
             **kwargs,
         )
         self.is_fit = True
@@ -142,7 +142,11 @@ class TabularModel:
         )
         context_table, query_table = table[:len(context_df)], table[len(context_df):]
 
-        self.model.fit(context_table.drop_columns(task["label"]), context_table.select_columns(task["label"]), num_estimators=1)
+        self.model.fit(
+            context_table.drop_columns(task["label"]),
+            context_table.select_columns(task["label"]),
+            num_estimators=8,
+        )
         table_predictions = self.model.predict(query_table.drop_columns(task["label"])).to_pandas()
 
         predictions = table_predictions.idxmax(axis=1).to_numpy()

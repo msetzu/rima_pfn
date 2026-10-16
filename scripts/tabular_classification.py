@@ -6,7 +6,7 @@ import numpy
 import pandas
 from sklearn.metrics import classification_report, balanced_accuracy_score
 from sklearn.model_selection import train_test_split, GroupShuffleSplit
-from tqdm import tqdm
+from xgboost import XGBClassifier
 
 import rima_pfn
 from rima_pfn.data import RIMADataset
@@ -92,6 +92,25 @@ def evaluate(
     return report
 
 
+def evaluate_sklearn(
+    model,
+    task: dict,
+    query: pandas.DataFrame,
+    labels: numpy.ndarray,
+) -> dict:
+    predictions = model.predict(query)
+
+    report = classification_report(
+        y_true=labels,
+        y_pred=predictions,
+        output_dict=True,
+    )["macro avg"]
+    if task["task"] == Task.CLASSIFICATION:
+        report["balanced_accuracy"] = balanced_accuracy_score(labels, predictions)
+
+    return report
+
+
 def fit_task(d: pandas.DataFrame, task) -> dict:
     train_df, test_df = preprocess(d, task)
 
@@ -105,6 +124,25 @@ def fit_task(d: pandas.DataFrame, task) -> dict:
         is_finetuned=False
     )
     report["model"] = "TabICLv2"
+    report["task"] = "icl_full"
+    report["task_name"] = task["label"]
+    report["modality"] = "tabular"
+
+    return report
+
+
+def fit_xgboost(d: pandas.DataFrame, task) -> dict:
+    train_df, test_df = preprocess(d, task)
+
+    model = XGBClassifier(n_estimators=2, max_depth=2, learning_rate=1, objective='binary:logistic')
+    model.fit(train_df.drop(columns=task["label"]))
+    report = evaluate_sklearn(
+        model,
+        query=test_df.drop(columns=[task["label"]]),
+        labels=test_df[task["label"]],
+        task=task,
+    )
+    report["model"] = "xgboost"
     report["task"] = "fit"
     report["task_name"] = task["label"]
     report["modality"] = "tabular"
@@ -130,7 +168,7 @@ def finetune_task(d: pandas.DataFrame, task, finetune_args: dict) -> dict:
         is_finetuned=True
     )
     report["model"] = "TabICLv2"
-    report["task"] = "fit"
+    report["task"] = "finetune"
     report["task_name"] = task["label"]
     report["modality"] = "tabular"
 
@@ -165,6 +203,8 @@ def icl(d: pandas.DataFrame, config, icl_config) -> list[dict]:
                 data=context_set,
                 **context_selection["kwargs"]
             )
+            for _, row in context_set.iterrows():
+                context_selection_function(row)
             contexts_per_row = query[context_selection["object_id"]].apply(context_selection_function)
 
             predictions = icl_model.query(
@@ -207,14 +247,23 @@ def run():
 
         if "fit" in task["modes"]:
             print("\tFitting...")
-            task_reports.append(fit_task(d, task))
-            pandas.DataFrame(task_reports).to_csv("classification_report.csv")
+            try:
+                task_reports.append(fit_task(d, task))
+                pandas.DataFrame(task_reports).to_csv("classification_report.csv")
+
+                task_reports.append(fit_xgboost(d, task))
+                pandas.DataFrame(task_reports).to_csv("classification_report.csv")
+            except Exception:
+                pass
 
         if task["fine_tune"]:
             print("\tTuning...")
             finetuning_config = config["fine_tune"]
-            task_reports.append(finetune_task(d, task, finetuning_config))
-            pandas.DataFrame(task_reports).to_csv("classification_report.csv")
+            try:
+                task_reports.append(finetune_task(d, task, finetuning_config))
+                pandas.DataFrame(task_reports).to_csv("classification_report.csv")
+            except Exception:
+                pass
 
         # if "icl" in task["modes"]:
         #     for icl_config in config["modes"]["icl"]:

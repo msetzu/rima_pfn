@@ -17,6 +17,7 @@ dependencies = [
     "scipy-stubs~=1.17.1",
     "tabpfn-client>=0.6.0",
     "tabpfn-extensions[all]>=0.6.3",
+    "xgboost>=3.2.0",
 ]
 
 [project.scripts]
