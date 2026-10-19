@@ -6,6 +6,8 @@ import numpy
 import pandas
 from sklearn.metrics import classification_report, balanced_accuracy_score
 from sklearn.model_selection import train_test_split, GroupShuffleSplit
+from sklearn.preprocessing import LabelEncoder
+from tqdm import tqdm
 from xgboost import XGBClassifier
 
 import rima_pfn
@@ -115,7 +117,7 @@ def fit_task(d: pandas.DataFrame, task) -> dict:
     train_df, test_df = preprocess(d, task)
 
     model = TabularModel()
-    model.fit_sdm(train_df, task["label"], task=task["task"])
+    model.zero_shot(train_df, task["label"], task=task["task"])
     report = evaluate(
         model,
         query=test_df.drop(columns=[task["label"]]),
@@ -134,8 +136,17 @@ def fit_task(d: pandas.DataFrame, task) -> dict:
 def fit_xgboost(d: pandas.DataFrame, task) -> dict:
     train_df, test_df = preprocess(d, task)
 
-    model = XGBClassifier(n_estimators=2, max_depth=2, learning_rate=1, objective='binary:logistic')
-    model.fit(train_df.drop(columns=task["label"]))
+    if train_df.dtypes[task["label"]].kind not in "iu":
+        encoder = LabelEncoder().fit(pandas.concat([
+            train_df[task["label"]],
+            test_df[task["label"]]
+        ], axis="rows",
+        ))
+        train_df[task["label"]] = encoder.transform(train_df[task["label"]])
+        test_df[task["label"]] = encoder.transform(test_df[task["label"]])
+
+    model = XGBClassifier(n_estimators=100, max_depth=2, learning_rate=1)
+    model.fit(train_df.drop(columns=task["label"]), train_df[task["label"]])
     report = evaluate_sklearn(
         model,
         query=test_df.drop(columns=[task["label"]]),
@@ -168,73 +179,107 @@ def finetune_task(d: pandas.DataFrame, task, finetune_args: dict) -> dict:
         is_finetuned=True
     )
     report["model"] = "TabICLv2"
-    report["task"] = "finetune"
+    report["mode"] = "finetune"
     report["task_name"] = task["label"]
     report["modality"] = "tabular"
 
     return report
 
 
-def icl(d: pandas.DataFrame, config, icl_config) -> list[dict]:
-    train_df, test_df = preprocess(d, config)
-    icl_model = ICLTabularModel()
+def icl_task(d: pandas.DataFrame, task, icl_task) -> tuple[dict, dict]:
+    train_df, test_df = preprocess(d, task)
 
-    reports = list()
-    for context_selection in icl_config:
-        if isinstance(context_selection, str):
-            query = test_df
-            context_set = train_df
-            predictions = icl_model.query(
-                data=query,
-                label=config["label"],
-                task=config["task"],
-                context=context_set,
-            )
+    # sklearn models don't like objects as classes, gotta encode them
+    if train_df.dtypes[task["label"]].kind not in "iu":  # categorical label
+        encoder = LabelEncoder().fit(pandas.concat([
+            train_df[task["label"]],
+            test_df[task["label"]]
+        ], axis="rows",
+        ))
 
-        else:
-            query = test_df
-            context_set = train_df
+        sklearn_train_df = train_df.copy()
+        sklearn_test_df = test_df.copy()
+        sklearn_train_df[task["label"]] = encoder.transform(sklearn_train_df[task["label"]])
+        sklearn_test_df[task["label"]] = encoder.transform(sklearn_test_df[task["label"]])
 
-            context_selection_policy = context_selection["selection_policy"]
-            # selection function indicated as string, retrieved w/ reflection
-            context_selection_function = getattr(context, context_selection_policy)
-            context_selection_function = partial(
-                context_selection_function,
-                data=context_set,
-                **context_selection["kwargs"]
-            )
-            for _, row in context_set.iterrows():
-                context_selection_function(row)
-            contexts_per_row = query[context_selection["object_id"]].apply(context_selection_function)
+        sklearn_context_set = sklearn_train_df
+        sklearn_query = sklearn_test_df.head(2)
+    else:
+        sklearn_context_set = train_df
+        sklearn_query = test_df.head(2)
 
-            predictions = icl_model.query(
-                data=query,
-                label=config["label"],
-                task=config["task"],
-                context=contexts_per_row,
-            )
 
-        report = classification_report(
-            y_true=test_df[config["label"]],
-            y_pred=predictions,
-            output_dict=True,
-        )["macro avg"]
-        report["model"] = "TabICLv2"
-        report["mode"] = "icl"
-        report["task"] = "icl_classification"
-        report["task_name"] = config["label"]
-        report["modality"] = "tabular"
-        report["selection_policy"] = context_selection_policy
-        report["object_id"] = context_selection["object_id"]
-        report.update(context_selection["kwargs"])
+    query = test_df.head(2)
+    context_set = train_df
 
-        reports.append(report)
+    context_selection_policy = icl_task["selection_policy"]
+    # selection function indicated as string, retrieved w/ reflection
+    context_selection_function = getattr(context, context_selection_policy)
+    context_selection_function = partial(
+        context_selection_function,
+        **icl_task["kwargs"]
+    )
 
-    return reports
+    icl_predictions = list()
+    fit_predictions = list()
+    for index in tqdm(query.index):
+        local_context = context_selection_function(row=query.loc[index], dataset=context_set)
+        local_query = query.loc[[index]]
+
+        # icl
+        model = TabularModel()
+        model.zero_shot(local_context, task["label"], task=task["task"])
+        icl_predictions.append(
+            model.predict(
+                local_query,
+                task["label"], task=task["task"]
+            ).item()
+        )
+
+        # fit
+        local_context = context_selection_function(row=sklearn_query.loc[index], dataset=sklearn_context_set)
+        local_query = sklearn_query.loc[[index]]
+
+        model = XGBClassifier(n_estimators=2, max_depth=2)
+        model.fit(local_context.drop(columns=task["label"]), local_context[task["label"]])
+        fit_predictions.append(model.predict(local_query.drop(columns=[task["label"]])).item())
+
+
+    icl_predictions = numpy.array(icl_predictions)
+    icl_report = classification_report(
+        y_true=query[task["label"]].values,
+        y_pred=icl_predictions,
+        output_dict=True,
+    )["macro avg"]
+    icl_report["model"] = "TabICLv2"
+    icl_report["mode"] = "icl"
+    icl_report["task_name"] = task["label"]
+    icl_report["modality"] = "tabular"
+    icl_report["selection_policy"] = icl_task["selection_policy"]
+    icl_report.update(icl_task["kwargs"])
+    if task["task"] == Task.CLASSIFICATION:
+        icl_report["balanced_accuracy"] = balanced_accuracy_score(query[task["label"]].values, icl_predictions)
+
+    fit_predictions = numpy.array(fit_predictions)
+    fit_report = classification_report(
+        y_true=sklearn_query[task["label"]].values,
+        y_pred=fit_predictions,
+        output_dict=True,
+    )["macro avg"]
+    fit_report["model"] = "xgboost"
+    fit_report["mode"] = "icl"
+    fit_report["task_name"] = task["label"]
+    fit_report["modality"] = "tabular"
+    fit_report["selection_policy"] = icl_task["selection_policy"]
+    fit_report.update(icl_task["kwargs"])
+    if task["task"] == Task.CLASSIFICATION:
+        fit_report["balanced_accuracy"] = balanced_accuracy_score(sklearn_query[task["label"]].values, fit_predictions)
+
+    return icl_report, fit_report
 
 
 def run():
-    with open("configs.json", "r") as f:
+    with open("scripts/configs.json", "r") as f:
         config = json.load(f)
 
     d = RIMADataset.build().d
@@ -254,6 +299,7 @@ def run():
                 task_reports.append(fit_xgboost(d, task))
                 pandas.DataFrame(task_reports).to_csv("classification_report.csv")
             except Exception:
+                print(f"\tError on fit")
                 pass
 
         if task["fine_tune"]:
@@ -263,13 +309,12 @@ def run():
                 task_reports.append(finetune_task(d, task, finetuning_config))
                 pandas.DataFrame(task_reports).to_csv("classification_report.csv")
             except Exception:
+                print(f"\tError on tuning")
                 pass
 
-        # if "icl" in task["modes"]:
-        #     for icl_config in config["modes"]["icl"]:
-        #         task_reports.append(icl(d, config, icl_config))
-        #         pandas.DataFrame(task_reports).to_csv("classification_report.csv")
-
+        for task_icl in task["modes"].get("icl", []):
+            task_reports += icl_task(d, task, task_icl)
+            pandas.DataFrame(task_reports).to_csv("classification_report.csv")
 
 
 if __name__ == "__main__":

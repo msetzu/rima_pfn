@@ -87,7 +87,7 @@ class TabularModel:
     def overrides(self, label: str, task: Task) -> dict:
         return {label: "categorical"} if task == Task.CLASSIFICATION else {label: "numerical"}
 
-    def fit_sdm(self, data: pandas.DataFrame, label: str, task: Task, **kwargs) -> TabularModel:
+    def zero_shot(self, data: pandas.DataFrame, label: str, task: Task, **kwargs) -> TabularModel:
         """Implementation w/ the SDM library: https://github.com/NVIDIA/structured-data-models"""
         overrides = self.overrides(label, task)
         table = TableTensor.from_pandas(

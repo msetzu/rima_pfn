@@ -8,8 +8,12 @@
         "fit": true,
         "icl": [
           {
-            "selection_policy": "same",
-            "": ,
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "bpm": 15.0
+              }
+            }
           }
         ]
       },
