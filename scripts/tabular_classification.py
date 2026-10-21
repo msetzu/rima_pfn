@@ -203,13 +203,13 @@ def icl_task(d: pandas.DataFrame, task, icl_task) -> tuple[dict, dict]:
         sklearn_test_df[task["label"]] = encoder.transform(sklearn_test_df[task["label"]])
 
         sklearn_context_set = sklearn_train_df
-        sklearn_query = sklearn_test_df.head(2)
+        sklearn_query = sklearn_test_df
     else:
         sklearn_context_set = train_df
-        sklearn_query = test_df.head(2)
+        sklearn_query = test_df
 
 
-    query = test_df.head(2)
+    query = test_df
     context_set = train_df
 
     context_selection_policy = icl_task["selection_policy"]
@@ -222,6 +222,7 @@ def icl_task(d: pandas.DataFrame, task, icl_task) -> tuple[dict, dict]:
 
     icl_predictions = list()
     fit_predictions = list()
+    sizes = list()
     for index in tqdm(query.index):
         local_context = context_selection_function(row=query.loc[index], dataset=context_set)
         local_query = query.loc[[index]]
@@ -244,6 +245,7 @@ def icl_task(d: pandas.DataFrame, task, icl_task) -> tuple[dict, dict]:
         model.fit(local_context.drop(columns=task["label"]), local_context[task["label"]])
         fit_predictions.append(model.predict(local_query.drop(columns=[task["label"]])).item())
 
+        sizes.append(local_query.shape[0])
 
     icl_predictions = numpy.array(icl_predictions)
     icl_report = classification_report(
@@ -259,6 +261,7 @@ def icl_task(d: pandas.DataFrame, task, icl_task) -> tuple[dict, dict]:
     icl_report.update(icl_task["kwargs"])
     if task["task"] == Task.CLASSIFICATION:
         icl_report["balanced_accuracy"] = balanced_accuracy_score(query[task["label"]].values, icl_predictions)
+    icl_report["sizes"] = sizes
 
     fit_predictions = numpy.array(fit_predictions)
     fit_report = classification_report(
@@ -274,6 +277,7 @@ def icl_task(d: pandas.DataFrame, task, icl_task) -> tuple[dict, dict]:
     fit_report.update(icl_task["kwargs"])
     if task["task"] == Task.CLASSIFICATION:
         fit_report["balanced_accuracy"] = balanced_accuracy_score(sklearn_query[task["label"]].values, fit_predictions)
+    icl_report["sizes"] = sizes
 
     return icl_report, fit_report
 
