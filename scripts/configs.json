@@ -11,10 +11,67 @@
             "selection_policy": "almost_same",
             "kwargs": {
               "selection_columns": {
-                "bpm": 15.0
+                "bpm": 25.0
               }
             }
-          }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "beats_count": 15.0
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "loudness": 250.0
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "flatness_mean": 0.1
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "lexical_density": 0.1
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "danceability": 0.18
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "spectral_energy_max": 0.49
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "onset_novelty_mean": 22.90
+              }
+            }
+          },
+
         ]
       },
       "exclude_classes": ["Puglia", "Emilia-Romagna", "Calabria"],
