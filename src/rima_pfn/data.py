@@ -29,6 +29,14 @@ class RIMADataset:
             how="inner",
             suffixes=("_audio", "_artist"),
         )
+        merge = pandas.merge(
+            merge,
+            rima_dict["albums"][["album_name", "album_type"]],
+            left_on="album_audio",
+            right_on="album_name",
+            how="left",
+            # suffixes=("_audio", "_artist"),
+        )
 
         merge.drop(columns=["id_artist", "id_artist_audio"], inplace=True)
         merge["is_male"] = merge["gender"] == "M"
@@ -36,6 +44,15 @@ class RIMADataset:
         merge["is_group"] = merge["gender"] == "G"
         # preclean for downstream tasks
         merge = merge[(~merge["birth_lon"].isna()) & (~merge["birth_lat"].isna())]
+
+        merge["era"] = merge["release_year_audio"].apply(
+            lambda x: "early_rap" if x < 2005 else "golden_era" if x < 2021 else "trap"
+        )
+
+        # has featuring?
+        merge["has_featuring"] = merge["featured_artists_audio"].apply(
+            lambda x: not (x is None)
+        )
 
         merge.drop([
             "__index_level_0__",
@@ -123,6 +140,8 @@ class RIMADataset:
             axis="columns",
             inplace=True,
         )
+
+        # merge["song_era"] = merge[]
 
         if audio_path is not None:
             artists, tracks = merge.id_artist, merge.id_track

@@ -70,13 +70,247 @@
                 "onset_novelty_mean": 22.90
               }
             }
-          },
-
+          }
         ]
       },
       "exclude_classes": ["Puglia", "Emilia-Romagna", "Calabria"],
       "exclude_features": ["birth_lat", "birth_lon", "total_tracks", "album_popularity", "release_year", "release_month", "release_day", "stats_pageviews", "school_age"]
     },
+
+    "era": {
+      "label": "era",
+      "type": "classification",
+      "fine_tune": true,
+      "modes": {
+        "fit": true,
+        "icl": [
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "bpm": 25.0
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "beats_count": 15.0
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "loudness": 250.0
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "flatness_mean": 0.1
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "lexical_density": 0.1
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "danceability": 0.18
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "spectral_energy_max": 0.49
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "onset_novelty_mean": 22.90
+              }
+            }
+          }
+        ]
+      },
+      "exclude_classes": ["Puglia", "Emilia-Romagna", "Calabria"],
+      "exclude_features": ["birth_lat", "birth_lon", "total_tracks", "album_popularity", "release_year", "release_month", "release_day", "stats_pageviews", "school_age"]
+    },
+    
+    
+    "has_featuring": {
+      "label": "has_featuring",
+      "type": "classification",
+      "fine_tune": true,
+      "modes": {
+        "fit": true,
+        "icl": [
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "bpm": 25.0
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "beats_count": 15.0
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "loudness": 250.0
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "flatness_mean": 0.1
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "lexical_density": 0.1
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "danceability": 0.18
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "spectral_energy_max": 0.49
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "onset_novelty_mean": 22.90
+              }
+            }
+          }
+        ]
+      },
+      "exclude_classes": ["Puglia", "Emilia-Romagna", "Calabria"],
+      "exclude_features": ["birth_lat", "birth_lon", "total_tracks", "album_popularity", "release_year", "release_month", "release_day", "stats_pageviews", "school_age"]
+    },
+    
+    
+    "album_type": {
+      "label": "album_type",
+      "type": "classification",
+      "fine_tune": true,
+      "modes": {
+        "fit": true,
+        "icl": [
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "bpm": 25.0
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "beats_count": 15.0
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "loudness": 250.0
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "flatness_mean": 0.1
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "lexical_density": 0.1
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "danceability": 0.18
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "spectral_energy_max": 0.49
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "onset_novelty_mean": 22.90
+              }
+            }
+          }
+        ]
+      },
+      "exclude_classes": ["Puglia", "Emilia-Romagna", "Calabria"],
+      "exclude_features": ["birth_lat", "birth_lon", "total_tracks", "album_popularity", "release_year", "release_month", "release_day", "stats_pageviews", "school_age"]
+    },
+    
+    
     "artist": {
       "label": "artist_id",
       "type": "classification",
@@ -84,13 +318,79 @@
       "modes": {
         "fit": true,
         "icl": [
-          "null"
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "bpm": 25.0
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "beats_count": 15.0
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "loudness": 250.0
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "flatness_mean": 0.1
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "lexical_density": 0.1
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "danceability": 0.18
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "spectral_energy_max": 0.49
+              }
+            }
+          },
+          {
+            "selection_policy": "almost_same",
+            "kwargs": {
+              "selection_columns": {
+                "onset_novelty_mean": 22.90
+              }
+            }
+          }
         ]
       },
+      "exclude_classes": ["Puglia", "Emilia-Romagna", "Calabria"],
       "exclude_features": ["birth_lat", "birth_lon", "total_tracks", "album_popularity", "release_year", "release_month", "release_day", "stats_pageviews", "school_age"]
     },
+
+
     "sex": {
-      "label": "is_male",
+      "label": "gender",
       "type": "classification",
       "fine_tune": true,
       "modes": {
@@ -101,6 +401,7 @@
       },
       "exclude_features": ["birth_lat", "birth_lon", "total_tracks", "album_popularity", "release_year", "release_month", "release_day", "stats_pageviews", "school_age"]
     }
+
   },
   "fine_tune": {
     "fraction_validation": 0.2,

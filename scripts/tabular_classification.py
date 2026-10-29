@@ -79,6 +79,7 @@ def evaluate(
     if is_finetuned:
         if context is None:
             raise ValueError("context required for evaluation on is_finetuned==True")
+        
         predictions = model.predict_with_fit(query_df=query, context_df=context, task=task, as_objects=False)
     else:
         predictions = model.predict(query, task["label"], task=task["task"])
