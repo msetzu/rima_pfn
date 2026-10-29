@@ -364,7 +364,7 @@ def run():
 
         print("\tICL...")
         for task_icl in task["modes"].get("icl", []):
-            task_icl_hash = hash(task_icl)
+            task_icl_hash = hash(str(task_icl))
             if task_reports[
                 (task_reports["model"] == "TabICLv2") &
                 (task_reports["task"] == "icl") &
