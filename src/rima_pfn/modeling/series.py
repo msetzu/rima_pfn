@@ -6,6 +6,8 @@ import numpy
 import torch
 from tabpfn import TabPFNClassifier
 
+from rima_pfn import DEVICE
+
 
 class SeriesModel:
     def __init__(self):
@@ -38,7 +40,7 @@ class SeriesModel:
         else:
             data = encoder(data)
 
-        model = TabPFNClassifier(device="cpu",)
+        model = TabPFNClassifier(device=DEVICE)
         model.fit(data, labels)
 
         self.model = model

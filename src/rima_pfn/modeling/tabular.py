@@ -93,10 +93,10 @@ class TabularModel:
         table = TableTensor.from_pandas(
             df=data,
             stypes=sdm.infer_stypes(data, overrides=overrides),
-            device="cpu",
+            device=rima_pfn.DEVICE,
         )
 
-        self.model = TabICLv2(device="cpu")
+        self.model = TabICLv2(device=rima_pfn.DEVICE)
         self.model.fit(
             x=table.drop_columns(label),
             y=table[:, label],
@@ -114,7 +114,7 @@ class TabularModel:
         table = TableTensor.from_pandas(
             df=inference_data,
             stypes=sdm.infer_stypes(inference_data, overrides=overrides),
-            device="cpu",
+            device=rima_pfn.DEVICE,
         )
 
         # also predictions are tabletensors: convert to numpy
@@ -138,7 +138,7 @@ class TabularModel:
         table = sdm.TableTensor.from_pandas(
             data,
             stypes=types,
-            device="cpu"
+            device=rima_pfn.DEVICE
         )
         context_table, query_table = table[:len(context_df)], table[len(context_df):]
 
@@ -215,7 +215,7 @@ class TabularModel:
         self.model = TabICLv2(
             task="classification" if task["task"] == Task.CLASSIFICATION else "regression",
             pretrained=True,
-            device="cpu"
+            device=rima_pfn.DEVICE
         )
 
         full = train_df.reset_index(drop=True)
@@ -303,7 +303,7 @@ class TabularModel:
 
     def fit_pfn(self, data: pandas.DataFrame, label: str) -> TabularModel:
         """Implementation w/ the Priorlabs library: https://github.com/PriorLabs/TabPFN"""
-        model = TabPFNClassifier(device="cpu")
+        model = TabPFNClassifier(device=rima_pfn.DEVICE)
         model.fit(
             torch.Tensor(data.drop(columns=[label]).values),
             torch.Tensor(data[label])
@@ -318,7 +318,7 @@ class TabularModel:
 class ICLTabularModel(TabularModel):
     def __init__(self):
         super().__init__()
-        self.model = TabICLv2(device="cpu")
+        self.model = TabICLv2(device=rima_pfn.DEVICE)
 
     def query(
         self,
@@ -370,14 +370,14 @@ class ICLTabularModel(TabularModel):
                     context_table = TableTensor.from_pandas(
                         df=context.iloc[i],
                         stypes=sdm.infer_stypes(context.iloc[i], overrides=self.overrides(label, task)),
-                        device="cpu",
+                        device=rima_pfn.DEVICE,
                     )
                 else:
                     # dataframe
                     context_table = TableTensor.from_pandas(
                         df=context[i],
                         stypes=sdm.infer_stypes(context[i], overrides=self.overrides(label, task)),
-                        device="cpu",
+                        device=rima_pfn.DEVICE,
                     )
 
                 query = data_table[i : i + 1].drop_columns(label)
