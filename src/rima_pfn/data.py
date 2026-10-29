@@ -141,8 +141,6 @@ class RIMADataset:
             inplace=True,
         )
 
-        # merge["song_era"] = merge[]
-
         if audio_path is not None:
             artists, tracks = merge.id_artist, merge.id_track
             merge["audio"] = [audio_path / f"{a}_{t}'.mp3" for a, t in zip(artists, tracks)]

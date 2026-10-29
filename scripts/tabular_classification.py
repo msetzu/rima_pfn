@@ -1,3 +1,4 @@
+import os
 import json
 from functools import partial
 from typing import Optional
@@ -127,7 +128,7 @@ def fit_task(d: pandas.DataFrame, task) -> dict:
         is_finetuned=False
     )
     report["model"] = "TabICLv2"
-    report["task"] = "icl_full"
+    report["task"] = "zeroshot"
     report["task_name"] = task["label"]
     report["modality"] = "tabular"
 
@@ -180,7 +181,7 @@ def finetune_task(d: pandas.DataFrame, task, finetune_args: dict) -> dict:
         is_finetuned=True
     )
     report["model"] = "TabICLv2"
-    report["mode"] = "finetune"
+    report["task"] = "finetune"
     report["task_name"] = task["label"]
     report["modality"] = "tabular"
 
@@ -255,7 +256,7 @@ def icl_task(d: pandas.DataFrame, task, icl_task) -> tuple[dict, dict]:
         output_dict=True,
     )["macro avg"]
     icl_report["model"] = "TabICLv2"
-    icl_report["mode"] = "icl"
+    icl_report["task"] = "icl"
     icl_report["task_name"] = task["label"]
     icl_report["modality"] = "tabular"
     icl_report["selection_policy"] = icl_task["selection_policy"]
@@ -264,6 +265,7 @@ def icl_task(d: pandas.DataFrame, task, icl_task) -> tuple[dict, dict]:
         icl_report["balanced_accuracy"] = balanced_accuracy_score(query[task["label"]].values, icl_predictions)
     icl_report["sizes"] = sizes
 
+
     fit_predictions = numpy.array(fit_predictions)
     fit_report = classification_report(
         y_true=sklearn_query[task["label"]].values,
@@ -271,7 +273,7 @@ def icl_task(d: pandas.DataFrame, task, icl_task) -> tuple[dict, dict]:
         output_dict=True,
     )["macro avg"]
     fit_report["model"] = "xgboost"
-    fit_report["mode"] = "icl"
+    fit_report["task"] = "icl"
     fit_report["task_name"] = task["label"]
     fit_report["modality"] = "tabular"
     fit_report["selection_policy"] = icl_task["selection_policy"]
@@ -284,42 +286,97 @@ def icl_task(d: pandas.DataFrame, task, icl_task) -> tuple[dict, dict]:
 
 
 def run():
-    with open("scripts/configs.json", "r") as f:
+    with open("configs.json", "r") as f:
         config = json.load(f)
 
     d = RIMADataset.build().d
 
-    task_reports = list()
+    if "classification_report.csv" in os.listdir():
+        task_reports = pandas.read_csv("classification_report.csv")
+    else:
+        task_reports = pandas.DataFrame(columns=[
+            "precision",
+            "recall",
+            "f1-score",
+            "support",
+            "balanced_accuracy",
+            "model",
+            "task",
+            "task_name",
+            "icl_config",
+            "icl_config_hash"
+        ])
 
     for task_name, task in config["tasks"].items():
-        print(f"Task: {task}")
+        print(f"Task: {task_name}")
         task["task"] = Task.CLASSIFICATION if task["type"] == "classification" else Task.REGRESSION
 
         if "fit" in task["modes"]:
             print("\tFitting...")
             try:
-                task_reports.append(fit_task(d, task))
-                pandas.DataFrame(task_reports).to_csv("classification_report.csv")
+                if task_reports[
+                    (task_reports["model"] == "TabICLv2") &
+                    (task_reports["task"] == "icl_full") &
+                    (task_reports["task_name"] == task["label"])
+                ].shape[0] == 0:
+                    task_results = pandas.DataFrame([fit_task(d, task)])
+                    task_results["icl_config_hash"] = numpy.nan
+                    task_results["icl_config"] = dict()
+                    task_reports = pandas.concat((task_reports, task_results), axis="rows")
+                
+                task_reports.to_csv("classification_report.csv")
 
-                task_reports.append(fit_xgboost(d, task))
-                pandas.DataFrame(task_reports).to_csv("classification_report.csv")
+
+                if task_reports[
+                    (task_reports["model"] == "xgboost") &
+                    (task_reports["task"] == "fit") &
+                    (task_reports["task_name"] == task["label"])
+                ].shape[0] == 0:
+                    task_results = pandas.DataFrame([fit_xgboost(d, task)])
+                    task_results["icl_config_hash"] = numpy.nan
+                    task_results["icl_config"] = dict()
+                    task_reports = pandas.concat((task_reports, task_results), axis="rows")
+                
+
+                task_reports.to_csv("classification_report.csv")
             except Exception:
                 print(f"\tError on fit")
-                pass
 
         if task["fine_tune"]:
             print("\tTuning...")
             finetuning_config = config["fine_tune"]
             try:
-                task_reports.append(finetune_task(d, task, finetuning_config))
-                pandas.DataFrame(task_reports).to_csv("classification_report.csv")
+                if task_reports[
+                    (task_reports["model"] == "TabICLv2") &
+                    (task_reports["task"] == "finetune") &
+                    (task_reports["task_name"] == task["label"])
+                ].shape[0] == 0:
+                    task_results = pandas.DataFrame([finetune_task(d, task, finetuning_config)])
+                    task_results["icl_config_hash"] = numpy.nan
+                    task_results["icl_config"] = dict()
+                    task_reports = pandas.concat((task_reports, task_results), axis="rows")
+
+                
+                task_reports.to_csv("classification_report.csv")
             except Exception:
                 print(f"\tError on tuning")
-                pass
 
+
+        print("\tICL...")
         for task_icl in task["modes"].get("icl", []):
-            task_reports += icl_task(d, task, task_icl)
-            pandas.DataFrame(task_reports).to_csv("classification_report.csv")
+            task_icl_hash = hash(task_icl)
+            if task_reports[
+                (task_reports["model"] == "TabICLv2") &
+                (task_reports["task"] == "icl") &
+                (task_reports["task_name"] == task["label"]) &
+                (task_reports["icl_config_hash"] == task_icl_hash)
+            ].shape[0] == 0:
+                task_results = pandas.DataFrame(icl_task(d, task, task_icl))
+                task_results["icl_config"] = task_icl
+                task_results["icl_config_hash"] = task_icl_hash
+                task_reports = pandas.concat((task_reports, task_results))
+            
+            task_reports.to_csv("classification_report.csv")
 
 
 if __name__ == "__main__":
