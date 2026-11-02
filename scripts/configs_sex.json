@@ -1,0 +1,43 @@
+{
+  "tasks": {
+    "sex": {
+      "label": "gender",
+      "type": "classification",
+      "fine_tune": true,
+      "modes": {
+        "fit": true,
+        "icl": [
+          "null"
+        ]
+      },
+      "exclude_features": ["birth_lat", "birth_lon", "total_tracks", "album_popularity", "release_year", "release_month", "release_day", "stats_pageviews", "school_age"]
+    }
+
+  },
+  "fine_tune": {
+    "fraction_validation": 0.2,
+
+    "epochs": 5,
+    "steps_per_epoch": 20,
+
+    "learning_rate": 1e-5,
+    "weight_decay": 0.0,
+    "warmup_fraction": 0.1,
+
+    "grad_clip": 1.0,
+
+    "patience": 5,
+
+    "context_size": 1024,
+
+    "query_size": 512,
+
+    "num_estimators_train": 2,
+    "num_estimators_eval": 2,
+
+    "eval_context_size": 10000,
+    "eval_batch_size": 2048,
+
+    "amp": true
+  }
+}
