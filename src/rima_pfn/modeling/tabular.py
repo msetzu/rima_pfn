@@ -8,11 +8,11 @@ from typing import Sequence
 import numpy
 import pandas
 import sdm
-import torch
 from sdm import TableTensor
 from sdm.models import TabICLv2
 from sdm.evaluation import to_class_indices
 from tabpfn import TabPFNClassifier
+import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
@@ -96,13 +96,16 @@ class TabularModel:
             device=rima_pfn.DEVICE,
         )
 
-        self.model = TabICLv2(device=rima_pfn.DEVICE)
-        self.model.fit(
-            x=table.drop_columns(label),
-            y=table[:, label],
-            num_estimators=8,
-            **kwargs,
-        )
+        if self.model is None:
+            self.model = TabICLv2(device=rima_pfn.DEVICE)
+
+        with torch.no_grad():
+            self.model.fit(
+                x=table.drop_columns(label),
+                y=table[:, label],
+                num_estimators=8,
+                **kwargs,
+            )
         self.is_fit = True
 
         return self
@@ -118,7 +121,8 @@ class TabularModel:
         )
 
         # also predictions are tabletensors: convert to numpy
-        table_predictions = self.model.predict(table, **kwargs).to_pandas()
+        with torch.inference_mode():
+            table_predictions = self.model.predict(table, **kwargs).to_pandas()
         predictions = table_predictions.idxmax(axis=1).to_numpy()
 
         return predictions

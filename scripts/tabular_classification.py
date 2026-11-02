@@ -1,13 +1,18 @@
-import os
-import json
 from functools import partial
+import gc
+import json
+import os
+import sys
+import traceback
 from typing import Optional
 
+import hashlib
 import numpy
 import pandas
 from sklearn.metrics import classification_report, balanced_accuracy_score
 from sklearn.model_selection import train_test_split, GroupShuffleSplit
 from sklearn.preprocessing import LabelEncoder
+import torch
 from tqdm import tqdm
 from xgboost import XGBClassifier
 
@@ -89,6 +94,7 @@ def evaluate(
         y_true=labels,
         y_pred=predictions,
         output_dict=True,
+        zero_division=0,
     )["macro avg"]
     if task["task"] == Task.CLASSIFICATION:
         report["balanced_accuracy"] = balanced_accuracy_score(labels, predictions)
@@ -131,6 +137,10 @@ def fit_task(d: pandas.DataFrame, task) -> dict:
     report["task"] = "zeroshot"
     report["task_name"] = task["label"]
     report["modality"] = "tabular"
+
+    gc.collect()
+    del model
+    torch.cuda.empty_cache()
 
     return report
 
@@ -184,6 +194,11 @@ def finetune_task(d: pandas.DataFrame, task, finetune_args: dict) -> dict:
     report["task"] = "finetune"
     report["task_name"] = task["label"]
     report["modality"] = "tabular"
+    
+    gc.collect()
+    del model
+    torch.cuda.empty_cache()
+
 
     return report
 
@@ -204,15 +219,15 @@ def icl_task(d: pandas.DataFrame, task, icl_task) -> tuple[dict, dict]:
         sklearn_train_df[task["label"]] = encoder.transform(sklearn_train_df[task["label"]])
         sklearn_test_df[task["label"]] = encoder.transform(sklearn_test_df[task["label"]])
 
-        sklearn_context_set = sklearn_train_df
-        sklearn_query = sklearn_test_df
+        sklearn_context_set = sklearn_train_df.reset_index(drop=True)
+        sklearn_query = sklearn_test_df.reset_index(drop=True)
     else:
-        sklearn_context_set = train_df
-        sklearn_query = test_df
+        sklearn_context_set = train_df.reset_index(drop=True)
+        sklearn_query = test_df.reset_index(drop=True)
 
 
-    query = test_df
-    context_set = train_df
+    query = test_df.reset_index(drop=True)
+    context_set = train_df.reset_index(drop=True)
 
     context_selection_policy = icl_task["selection_policy"]
     # selection function indicated as string, retrieved w/ reflection
@@ -225,31 +240,39 @@ def icl_task(d: pandas.DataFrame, task, icl_task) -> tuple[dict, dict]:
     icl_predictions = list()
     fit_predictions = list()
     sizes = list()
-    for index in tqdm(query.index):
-        local_context = context_selection_function(row=query.loc[index], dataset=context_set)
-        local_query = query.loc[[index]]
+    context_to_queries_indexes = dict()
+    for query_index in query.index:
+        local_context = context_selection_function(row=query.loc[query_index], dataset=context_set)
+        context_index = tuple(sorted(local_context.index.values.tolist()))
+        context_to_queries_indexes[context_index] = context_to_queries_indexes.get(context_index, []) + [query_index]
+
+    majority_class = context_set[task["label"]].mode()
+    icl_predictions = numpy.full(query.shape[0], majority_class)
+    fit_predictions = numpy.full(query.shape[0], majority_class)
+    sizes = numpy.full(query.shape[0], numpy.nan)
+
+    icl_model = TabularModel()
+    for context_index, query_index in tqdm(context_to_queries_indexes.items()):
+        local_context = context_set.loc[numpy.array(context_index)]
+        local_query = query.loc[query_index]
+        local_sklearn_context = sklearn_context_set.loc[numpy.array(context_index)]
+        local_sklearn_query = sklearn_query.loc[query_index]
 
         # icl
-        model = TabularModel()
-        model.zero_shot(local_context, task["label"], task=task["task"])
-        icl_predictions.append(
-            model.predict(
-                local_query,
-                task["label"], task=task["task"]
-            ).item()
-        )
-
+        icl_model.zero_shot(local_context, task["label"], task=task["task"])
+        with torch.inference_mode():
+            icl_predictions[query_index] = icl_model.predict(local_query, task["label"], task=task["task"])
+        icl_model.model.clear()
+        
         # fit
-        local_context = context_selection_function(row=sklearn_query.loc[index], dataset=sklearn_context_set)
-        local_query = sklearn_query.loc[[index]]
-
         model = XGBClassifier(n_estimators=2, max_depth=2)
-        model.fit(local_context.drop(columns=task["label"]), local_context[task["label"]])
-        fit_predictions.append(model.predict(local_query.drop(columns=[task["label"]])).item())
+        model.fit(local_sklearn_context.drop(columns=task["label"]), local_sklearn_context[task["label"]])
+        fit_predictions[query_index] = model.predict(local_sklearn_query.drop(columns=[task["label"]]))
 
-        sizes.append(local_query.shape[0])
+        sizes[query_index] = local_context.shape[0]
 
-    icl_predictions = numpy.array(icl_predictions)
+
+
     icl_report = classification_report(
         y_true=query[task["label"]].values,
         y_pred=icl_predictions,
@@ -280,19 +303,19 @@ def icl_task(d: pandas.DataFrame, task, icl_task) -> tuple[dict, dict]:
     fit_report.update(icl_task["kwargs"])
     if task["task"] == Task.CLASSIFICATION:
         fit_report["balanced_accuracy"] = balanced_accuracy_score(sklearn_query[task["label"]].values, fit_predictions)
-    icl_report["sizes"] = sizes
+    fit_report["sizes"] = sizes
 
     return icl_report, fit_report
 
 
-def run():
-    with open("configs.json", "r") as f:
+def run(config_file, report_name):
+    with open(config_file, "r") as f:
         config = json.load(f)
 
     d = RIMADataset.build().d
 
-    if "classification_report.csv" in os.listdir():
-        task_reports = pandas.read_csv("classification_report.csv")
+    if report_name in os.listdir():
+        task_reports = pandas.read_csv(report_name)
     else:
         task_reports = pandas.DataFrame(columns=[
             "precision",
@@ -310,21 +333,25 @@ def run():
     for task_name, task in config["tasks"].items():
         print(f"Task: {task_name}")
         task["task"] = Task.CLASSIFICATION if task["type"] == "classification" else Task.REGRESSION
+        torch.cuda.empty_cache()
 
         if "fit" in task["modes"]:
             print("\tFitting...")
             try:
                 if task_reports[
                     (task_reports["model"] == "TabICLv2") &
-                    (task_reports["task"] == "icl_full") &
+                    (task_reports["task"] == "zeroshot") &
                     (task_reports["task_name"] == task["label"])
                 ].shape[0] == 0:
+
                     task_results = pandas.DataFrame([fit_task(d, task)])
                     task_results["icl_config_hash"] = numpy.nan
                     task_results["icl_config"] = dict()
                     task_reports = pandas.concat((task_reports, task_results), axis="rows")
+
+                    torch.cuda.empty_cache()
                 
-                task_reports.to_csv("classification_report.csv")
+                task_reports.to_csv(report_name)
 
 
                 if task_reports[
@@ -336,11 +363,15 @@ def run():
                     task_results["icl_config_hash"] = numpy.nan
                     task_results["icl_config"] = dict()
                     task_reports = pandas.concat((task_reports, task_results), axis="rows")
-                
+                    torch.cuda.empty_cache()
 
-                task_reports.to_csv("classification_report.csv")
-            except Exception:
+                task_reports.to_csv(report_name)
+
+
+            except Exception as e:
                 print(f"\tError on fit")
+                print(traceback.format_exc())
+
 
         if task["fine_tune"]:
             print("\tTuning...")
@@ -355,16 +386,18 @@ def run():
                     task_results["icl_config_hash"] = numpy.nan
                     task_results["icl_config"] = dict()
                     task_reports = pandas.concat((task_reports, task_results), axis="rows")
+                    torch.cuda.empty_cache()
 
                 
-                task_reports.to_csv("classification_report.csv")
-            except Exception:
+                task_reports.to_csv(report_name)
+            except Exception as e:
                 print(f"\tError on tuning")
+                print(traceback.format_exc())
 
 
         print("\tICL...")
         for task_icl in task["modes"].get("icl", []):
-            task_icl_hash = hash(str(task_icl))
+            task_icl_hash = hashlib.md5(json.dumps(task_icl, sort_keys=True).encode()).hexdigest()
             if task_reports[
                 (task_reports["model"] == "TabICLv2") &
                 (task_reports["task"] == "icl") &
@@ -375,9 +408,17 @@ def run():
                 task_results["icl_config"] = task_icl
                 task_results["icl_config_hash"] = task_icl_hash
                 task_reports = pandas.concat((task_reports, task_results))
+
+                print(
+                    f"alloc={torch.cuda.memory_allocated()/1e9:.2f}GB "
+                    f"reserved={torch.cuda.memory_reserved()/1e9:.2f}GB "
+                    f"peak={torch.cuda.max_memory_allocated()/1e9:.2f}GB"
+                )
+
+                torch.cuda.empty_cache()
             
-            task_reports.to_csv("classification_report.csv")
+            task_reports.to_csv(report_name)
 
 
 if __name__ == "__main__":
-    run()
+    run(sys.argv[1], sys.argv[2])
