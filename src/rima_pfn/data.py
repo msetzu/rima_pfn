@@ -42,6 +42,7 @@ class RIMADataset:
         merge["is_male"] = merge["gender"] == "M"
         merge["is_female"] = merge["gender"] == "F"
         merge["is_group"] = merge["gender"] == "G"
+        merge["album_type"] = merge["album_type"].apply(lambda x: "unknown" if not isinstance(x, str) else x)
         # preclean for downstream tasks
         merge = merge[(~merge["birth_lon"].isna()) & (~merge["birth_lat"].isna())]
 
@@ -51,7 +52,7 @@ class RIMADataset:
 
         # has featuring?
         merge["has_featuring"] = merge["featured_artists_audio"].apply(
-            lambda x: not (x is None)
+            lambda x: bool(not (x is None))
         )
 
         merge.drop([

@@ -1,0 +1,4 @@
+,Unnamed: 0,precision,recall,f1-score,support,balanced_accuracy,model,task,task_name,icl_config,icl_config_hash,modality,sizes
+0,0,0.2838915470494418,0.1231734439946568,0.139496228103823,2148.0,0.1231734439946568,TabICLv2,zeroshot,birth_region,,,tabular,[]
+1,0,0.1155818540433925,0.1082779009608277,0.111810723144438,2148.0,0.1082779009608277,xgboost,fit,birth_region,,,tabular,[]
+2,0,0.2917973943615565,0.120689252486075,0.1414111504301561,2148.0,0.120689252486075,TabICLv2,finetune,birth_region,,,tabular,[]

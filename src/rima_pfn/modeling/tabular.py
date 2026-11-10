@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import math
 from functools import partial
-from pathlib import Path
-from typing import Sequence
+from typing import Optional
 
 import numpy
 import pandas
@@ -110,7 +109,7 @@ class TabularModel:
 
         return self
 
-    def predict(self, data: pandas.DataFrame, label: str, task: Task, **kwargs) -> torch.Tensor:
+    def predict(self, data: pandas.DataFrame, label: str, task: Task, astype: Optional = None, **kwargs) -> torch.Tensor:
         """Implementation w/ the SDM library: https://github.com/NVIDIA/structured-data-models"""
         overrides = self.overrides(label, task)
         inference_data = data.drop(columns=[label], errors="ignore")
@@ -125,6 +124,9 @@ class TabularModel:
             table_predictions = self.model.predict(table, **kwargs).to_pandas()
         predictions = table_predictions.idxmax(axis=1).to_numpy()
 
+        if astype is not None:
+            predictions = predictions.astype(astype)
+
         return predictions
 
 
@@ -133,7 +135,8 @@ class TabularModel:
         context_df: pandas.DataFrame,
         query_df: pandas.DataFrame,
         task: dict,
-        as_objects: bool = False
+        as_objects: bool = False,
+        astype: Optional = None,
     ) -> numpy.ndarray:
         """Predict for fine-tuned models, which require an additional fit step for KV caching."""
         data = pandas.concat([context_df, query_df], axis="rows", ignore_index=True)
@@ -165,6 +168,10 @@ class TabularModel:
 
             if as_objects:
                 predictions = numpy.array([self.index_classes[c] for c in predictions])
+
+        # tabicl big into type casting: booleans? strings! floats? strings! strings? you won't believe it, strings
+        if astype is not None:
+            predictions = predictions.astype(astype)
 
         return predictions
 

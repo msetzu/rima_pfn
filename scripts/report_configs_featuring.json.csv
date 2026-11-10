@@ -1,4 +1,0 @@
-,precision,recall,f1-score,support,balanced_accuracy,model,task,task_name,icl_config,icl_config_hash,modality,selection_policy,selection_columns,sizes
-0,0.7284093211752787,0.6368615575894299,0.6455941320579097,1945.0,0.6368615575894299,TabICLv2,finetune,has_featuring,,,tabular,,,
-0,0.16015424164524422,0.5,0.24260124610591902,1945.0,0.5,TabICLv2,icl,has_featuring,,a840f5a48d858fb531987c3120cdd001,tabular,almost_same,{'bpm': 25.0},[4496. 3880. 1650. ... 4605. 1688. 4113.]
-1,0.8400205761316872,0.5008025682182986,0.40637904909950223,1945.0,0.5008025682182986,xgboost,icl,has_featuring,,a840f5a48d858fb531987c3120cdd001,tabular,almost_same,{'bpm': 25.0},[4496. 3880. 1650. ... 4605. 1688. 4113.]

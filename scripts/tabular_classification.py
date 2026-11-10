@@ -71,6 +71,11 @@ def preprocess(
         train_df = train_df[train_df[task["label"]].isin(legal_labels)]
         test_df = test_df[test_df[task["label"]].isin(legal_labels)]
 
+    # clean for downstream task
+    if task["label"] == "album_type":
+        train_df = train_df[train_df.album_type != "unknown"]
+        test_df = test_df[test_df.album_type  != "unknown"]
+
     return train_df, test_df
 
 
@@ -86,9 +91,9 @@ def evaluate(
         if context is None:
             raise ValueError("context required for evaluation on is_finetuned==True")
         
-        predictions = model.predict_with_fit(query_df=query, context_df=context, task=task, as_objects=False)
+        predictions = model.predict_with_fit(query_df=query, context_df=context, task=task, as_objects=False, astype=labels.dtype)
     else:
-        predictions = model.predict(query, task["label"], task=task["task"])
+        predictions = model.predict(query, task["label"], task=task["task"], astype=labels.dtype)
 
     report = classification_report(
         y_true=labels,
@@ -137,6 +142,7 @@ def fit_task(d: pandas.DataFrame, task) -> dict:
     report["task"] = "zeroshot"
     report["task_name"] = task["label"]
     report["modality"] = "tabular"
+    report["sizes"] = list()
 
     gc.collect()
     del model
@@ -169,6 +175,7 @@ def fit_xgboost(d: pandas.DataFrame, task) -> dict:
     report["task"] = "fit"
     report["task_name"] = task["label"]
     report["modality"] = "tabular"
+    report["sizes"] = list()
 
     return report
 
@@ -194,6 +201,7 @@ def finetune_task(d: pandas.DataFrame, task, finetune_args: dict) -> dict:
     report["task"] = "finetune"
     report["task_name"] = task["label"]
     report["modality"] = "tabular"
+    report["sizes"] = list()
     
     gc.collect()
     del model
@@ -203,7 +211,7 @@ def finetune_task(d: pandas.DataFrame, task, finetune_args: dict) -> dict:
     return report
 
 
-def icl_task(d: pandas.DataFrame, task, icl_task) -> tuple[dict, dict]:
+def icl_task(d: pandas.DataFrame, task, icl_task_config) -> tuple[dict, dict]:
     train_df, test_df = preprocess(d, task)
 
     # sklearn models don't like objects as classes, gotta encode them
@@ -225,38 +233,48 @@ def icl_task(d: pandas.DataFrame, task, icl_task) -> tuple[dict, dict]:
         sklearn_context_set = train_df.reset_index(drop=True)
         sklearn_query = test_df.reset_index(drop=True)
 
-
     query = test_df.reset_index(drop=True)
     context_set = train_df.reset_index(drop=True)
 
-    context_selection_policy = icl_task["selection_policy"]
+    context_selection_policy = icl_task_config["selection_policy"]
     # selection function indicated as string, retrieved w/ reflection
     context_selection_function = getattr(context, context_selection_policy)
     context_selection_function = partial(
         context_selection_function,
-        **icl_task["kwargs"]
+        **icl_task_config["kwargs"]
     )
 
     icl_predictions = list()
     fit_predictions = list()
     sizes = list()
     context_to_queries_indexes = dict()
+    # build context indexes
     for query_index in query.index:
         local_context = context_selection_function(row=query.loc[query_index], dataset=context_set)
         context_index = tuple(sorted(local_context.index.values.tolist()))
         context_to_queries_indexes[context_index] = context_to_queries_indexes.get(context_index, []) + [query_index]
 
+    
+
+    # prediction arrays to fill in 
     majority_class = context_set[task["label"]].mode()
     icl_predictions = numpy.full(query.shape[0], majority_class)
     fit_predictions = numpy.full(query.shape[0], majority_class)
     sizes = numpy.full(query.shape[0], numpy.nan)
 
     icl_model = TabularModel()
-    for context_index, query_index in tqdm(context_to_queries_indexes.items()):
+    # group together query sets with the same context
+    for context_index, query_index in tqdm(context_to_queries_indexes.items(), desc=f"[ICL] Task {task['label']}"):
         local_context = context_set.loc[numpy.array(context_index)]
         local_query = query.loc[query_index]
         local_sklearn_context = sklearn_context_set.loc[numpy.array(context_index)]
         local_sklearn_query = sklearn_query.loc[query_index]
+        
+        # ensure that the context labels and inference labels are the same set
+        context_label_set, query_label_set = set(local_context[task["label"]].values), set(local_query[task["label"]])
+        if len(query_label_set - context_label_set) > 0:
+            print(f"Uneven sets: context: {context_label_set}, query: {query_label_set}")
+            continue
 
         # icl
         icl_model.zero_shot(local_context, task["label"], task=task["task"])
@@ -282,11 +300,11 @@ def icl_task(d: pandas.DataFrame, task, icl_task) -> tuple[dict, dict]:
     icl_report["task"] = "icl"
     icl_report["task_name"] = task["label"]
     icl_report["modality"] = "tabular"
-    icl_report["selection_policy"] = icl_task["selection_policy"]
-    icl_report.update(icl_task["kwargs"])
+    icl_report["selection_policy"] = icl_task_config["selection_policy"]
+    icl_report.update(icl_task_config["kwargs"])
     if task["task"] == Task.CLASSIFICATION:
         icl_report["balanced_accuracy"] = balanced_accuracy_score(query[task["label"]].values, icl_predictions)
-    icl_report["sizes"] = sizes
+    icl_report["sizes"] = sizes.tolist()
 
 
     fit_predictions = numpy.array(fit_predictions)
@@ -299,11 +317,11 @@ def icl_task(d: pandas.DataFrame, task, icl_task) -> tuple[dict, dict]:
     fit_report["task"] = "icl"
     fit_report["task_name"] = task["label"]
     fit_report["modality"] = "tabular"
-    fit_report["selection_policy"] = icl_task["selection_policy"]
-    fit_report.update(icl_task["kwargs"])
+    fit_report["selection_policy"] = icl_task_config["selection_policy"]
+    fit_report.update(icl_task_config["kwargs"])
     if task["task"] == Task.CLASSIFICATION:
         fit_report["balanced_accuracy"] = balanced_accuracy_score(sklearn_query[task["label"]].values, fit_predictions)
-    fit_report["sizes"] = sizes
+    fit_report["sizes"] = sizes.tolist()
 
     return icl_report, fit_report
 
@@ -343,7 +361,6 @@ def run(config_file, report_name):
                     (task_reports["task"] == "zeroshot") &
                     (task_reports["task_name"] == task["label"])
                 ].shape[0] == 0:
-
                     task_results = pandas.DataFrame([fit_task(d, task)])
                     task_results["icl_config_hash"] = numpy.nan
                     task_results["icl_config"] = dict()
@@ -369,8 +386,9 @@ def run(config_file, report_name):
 
 
             except Exception as e:
-                print(f"\tError on fit")
-                print(traceback.format_exc())
+                print(f"\tError on fit on {report_name}")
+                with open(f"{report_name}.fit.error", "a") as log:
+                    log.write(str(traceback.format_exc()))
 
 
         if task["fine_tune"]:
@@ -391,33 +409,36 @@ def run(config_file, report_name):
                 
                 task_reports.to_csv(report_name)
             except Exception as e:
-                print(f"\tError on tuning")
-                print(traceback.format_exc())
+                print(f"\tError on tuning on {report_name}")
+                with open(f"{report_name}.tune.error", "a") as log:
+                    log.write(str(traceback.format_exc()))
 
 
         print("\tICL...")
         for task_icl in task["modes"].get("icl", []):
-            task_icl_hash = hashlib.md5(json.dumps(task_icl, sort_keys=True).encode()).hexdigest()
-            if task_reports[
-                (task_reports["model"] == "TabICLv2") &
-                (task_reports["task"] == "icl") &
-                (task_reports["task_name"] == task["label"]) &
-                (task_reports["icl_config_hash"] == task_icl_hash)
-            ].shape[0] == 0:
-                task_results = pandas.DataFrame(icl_task(d, task, task_icl))
-                task_results["icl_config"] = task_icl
-                task_results["icl_config_hash"] = task_icl_hash
-                task_reports = pandas.concat((task_reports, task_results))
+            try:
+                task_icl_hash = hashlib.md5(json.dumps(task_icl, sort_keys=True).encode()).hexdigest()
+                if task_reports[
+                    (task_reports["model"] == "TabICLv2") &
+                    (task_reports["task"] == "icl") &
+                    (task_reports["task_name"] == task["label"]) &
+                    (task_reports["icl_config_hash"] == task_icl_hash)
+                ].shape[0] == 0:
+                    task_results = pandas.DataFrame(
+                        icl_task(d, task, task_icl)
+                    )
+                    task_results["icl_config"] = task_icl
+                    task_results["icl_config_hash"] = task_icl_hash
+                    task_reports = pandas.concat((task_reports, task_results))
 
-                print(
-                    f"alloc={torch.cuda.memory_allocated()/1e9:.2f}GB "
-                    f"reserved={torch.cuda.memory_reserved()/1e9:.2f}GB "
-                    f"peak={torch.cuda.max_memory_allocated()/1e9:.2f}GB"
-                )
 
-                torch.cuda.empty_cache()
-            
-            task_reports.to_csv(report_name)
+                    torch.cuda.empty_cache()
+                
+                task_reports.to_csv(report_name)
+            except Exception as e:
+                print(f"\tError on ICL on {report_name}")
+                with open(f"{report_name}.icl.error", "a") as log:
+                    log.write(str(traceback.format_exc()))
 
 
 if __name__ == "__main__":
