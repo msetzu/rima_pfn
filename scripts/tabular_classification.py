@@ -255,7 +255,6 @@ def icl_task(d: pandas.DataFrame, task, icl_task_config) -> tuple[dict, dict]:
         context_index = tuple(sorted(local_context.index.values.tolist()))
         context_to_queries_indexes[context_index] = context_to_queries_indexes.get(context_index, []) + [query_index]
 
-
     # prediction arrays to fill in 
     majority_class = context_set[task["label"]].mode()
     majority_class_fit = sklearn_context_set[task["label"]].mode()
@@ -265,12 +264,45 @@ def icl_task(d: pandas.DataFrame, task, icl_task_config) -> tuple[dict, dict]:
 
     icl_model = TabularModel()
     # group together query sets with the same context
-    for context_index, query_index in tqdm(context_to_queries_indexes.items(), desc=f"[ICL] Task {task['label']}"):
+    for context_index, query_index in tqdm(context_to_queries_indexes.items(), desc=f"[ICL] Task {task['label']} {icl_task_config}"):
         local_context = context_set.loc[numpy.array(context_index)]
         local_query = query.loc[query_index]
         local_sklearn_context = sklearn_context_set.loc[numpy.array(context_index)]
         local_sklearn_query = sklearn_query.loc[query_index]
         
+        # todo: restore
+        # context_label_set, query_label_set = set(local_sklearn_context[task["label"]].values), set(local_sklearn_query[task["label"]])
+        # if query_label_set == context_label_set or query_label_set.issubset(context_label_set):
+        #     # by-artist groupings may have more labels in context than in inference: cut them down
+        #     if len(query_label_set) < len(context_label_set):
+        #         print(f"""
+        #         Label mismatch for sklearn model.
+        #         \tcontext_label_set: {context_label_set}
+        #         \tquery_label_set: {query_label_set}
+        #         \tintersection: {query_label_set & context_label_set}
+        #         \tcontext within intersection: {local_sklearn_context[local_sklearn_context[task['label']].isin(query_label_set & context_label_set)].shape}
+        #         \tquery within intersection: {local_sklearn_query[local_sklearn_query[task['label']].isin(query_label_set & context_label_set)].shape}
+        #         """)
+        #         intersection = query_label_set & context_label_set
+        #         trimmed_local_sklearn_query = local_sklearn_query[local_sklearn_query[task["label"]].isin(intersection)]
+        #         trimmed_local_sklearn_context = local_sklearn_context[local_sklearn_context[task["label"]].isin(intersection)]
+        #     else:
+        #         trimmed_local_sklearn_query = local_sklearn_query.copy()
+        #         trimmed_local_sklearn_context = local_sklearn_context.copy()
+            
+        #     # fit
+        #     model = XGBClassifier(max_depth=2)
+        #     try:
+        #         model.fit(trimmed_local_sklearn_context.drop(columns=task["label"]), trimmed_local_sklearn_context[task["label"]])
+        #         fit_predictions[query_index] = model.predict(trimmed_local_sklearn_query.drop(columns=[task["label"]]))
+        #     except Exception as e:
+        #         print(f"""
+        #         sklearn context labels: {set(trimmed_local_sklearn_context[task['label']].values)}
+        #         local sklearn context labels: {set(trimmed_local_sklearn_context[task['label']].values)}
+        #         """)
+        #         raise e
+
+
         # ensure that every inference label is present in context
         context_label_set, query_label_set = set(local_context[task["label"]].values), set(local_query[task["label"]])
         if query_label_set == context_label_set or query_label_set.issubset(context_label_set):
@@ -279,21 +311,15 @@ def icl_task(d: pandas.DataFrame, task, icl_task_config) -> tuple[dict, dict]:
             with torch.inference_mode():
                 icl_predictions[query_index] = icl_model.predict(local_query, task["label"], task=task["task"])
             icl_model.model.clear()
-            
-            # fit
-            model = XGBClassifier(max_depth=2)
-            model.fit(local_sklearn_context.drop(columns=task["label"]), local_sklearn_context[task["label"]])
-            fit_predictions[query_index] = model.predict(local_sklearn_query.drop(columns=[task["label"]]))
 
-            sizes[query_index] = local_context.shape[0]
+            sizes[query_index] = local_context.shape[0]      
 
-    print(f"evaluating on sets set(query[task['label']].values): {set(query[task['label']].values)} VS set(icl_predictions): {set(icl_predictions)}")
+    # print(f"evaluating on sets set(query[task['label']].values): {set(query[task['label']].values)} VS set(icl_predictions): {set(icl_predictions)}")
     icl_report = classification_report(
         y_true=query[task["label"]].values,
         y_pred=icl_predictions,
         output_dict=True,
     )["macro avg"]
-    print("\tmain...")
     icl_report["model"] = "TabICLv2"
     icl_report["task"] = "icl"
     icl_report["task_name"] = task["label"]
@@ -301,16 +327,11 @@ def icl_task(d: pandas.DataFrame, task, icl_task_config) -> tuple[dict, dict]:
     icl_report["selection_policy"] = icl_task_config["selection_policy"]
     icl_report.update(icl_task_config["kwargs"])
     if task["task"] == Task.CLASSIFICATION:
-        print("\tbalanced acc...")
         icl_report["balanced_accuracy"] = balanced_accuracy_score(query[task["label"]].values, icl_predictions)
     icl_report["sizes"] = sizes.tolist()
 
 
-    print("evaluating...")
-    print("\tmain...")
     fit_predictions = numpy.array(fit_predictions)
-    print(set(sklearn_query[task["label"]].values))
-    print(set(fit_predictions))
     fit_report = classification_report(
         y_true=sklearn_query[task["label"]].values,
         y_pred=fit_predictions,
@@ -323,7 +344,6 @@ def icl_task(d: pandas.DataFrame, task, icl_task_config) -> tuple[dict, dict]:
     fit_report["selection_policy"] = icl_task_config["selection_policy"]
     fit_report.update(icl_task_config["kwargs"])
     if task["task"] == Task.CLASSIFICATION:
-        print("\tbalanced acc...")
         fit_report["balanced_accuracy"] = balanced_accuracy_score(sklearn_query[task["label"]].values, fit_predictions)
     fit_report["sizes"] = sizes.tolist()
 
@@ -392,7 +412,7 @@ def run(config_file, report_name):
             except Exception as e:
                 print(f"\tError on fit on {report_name}")
                 with open(f"{report_name}.fit.error", "a") as log:
-                    log.write(str(datetime.now()) + "\n" + str(traceback.format_exc()))
+                    log.write(str(datetime.now()) + "\n" + str(traceback.format_exc()) + "\n\n\n")
 
 
         if task["fine_tune"]:
@@ -415,7 +435,7 @@ def run(config_file, report_name):
             except Exception as e:
                 print(f"\tError on tuning on {report_name}")
                 with open(f"{report_name}.tune.error", "a") as log:
-                    log.write(str(traceback.format_exc()))
+                    log.write(str(datetime.now()) + "\n" + str(traceback.format_exc()) + "\n\n\n")
 
 
         print("\tICL...")
@@ -441,8 +461,8 @@ def run(config_file, report_name):
                 task_reports.to_csv(report_name, index=False)
             except Exception as e:
                 print(f"\tError on ICL on {report_name}")
-                with open(f"{report_name}.icl.error", "a") as log:
-                    log.write(str(traceback.format_exc()))
+                with open(f"{report_name}.icl.{task_icl_hash}.error", "a") as log:
+                    log.write(str(datetime.now()) + "\n" + str(traceback.format_exc()) + "\n\n\n")
 
 
 if __name__ == "__main__":
